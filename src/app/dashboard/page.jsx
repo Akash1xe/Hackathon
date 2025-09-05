@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   const session = await getServerSession();
   
   if (!session) {
-    redirect('/auth/login');
+    redirect('/Login');
   }
   
   return (

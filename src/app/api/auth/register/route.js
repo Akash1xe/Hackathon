@@ -4,12 +4,15 @@ import bcrypt from 'bcrypt';
 import dbConnect from '@/lib/dbConnect';
 import User from '@/model/User';
 
+// Admin registration code - should be stored in environment variables
+const ADMIN_REGISTRATION_CODE = process.env.ADMIN_REGISTRATION_CODE || 'ADMIN123';
+
 export async function POST(request) {
   try {
     await dbConnect();
     
     const body = await request.json();
-    const { name, email, password, phone } = body;
+    const { name, email, password, phone, adminCode } = body;
     
     // Validate input
     if (!name || !email || !password) {
@@ -32,12 +35,28 @@ export async function POST(request) {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
     
+    // Determine user role based on admin code
+    let role = 'citizen'; // Default role
+    
+    if (adminCode) {
+      // Validate admin code
+      if (adminCode === ADMIN_REGISTRATION_CODE) {
+        role = 'admin';
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid admin code' },
+          { status: 400 }
+        );
+      }
+    }
+    
     // Create new user
     const user = new User({
       name,
       email,
       password: hashedPassword,
-      phone: phone || ''
+      phone: phone || '',
+      role // Set the role based on admin code
     });
     
     await user.save();
