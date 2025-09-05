@@ -1,37 +1,30 @@
-// File: c:\hackathon\src\app\api\reports\[id]\route.js
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
 import Report from '@/model/Report';
-import mongoose from 'mongoose';
+import Department from '@/model/Department';
+import { 
+  notifyReportStatusChange, 
+  notifyReportAssigned, 
+  notifyReportResolved 
+} from '@/lib/createNotification';
 
-// Helper to check if ID is valid
-function isValidObjectId(id) {
-  return mongoose.Types.ObjectId.isValid(id);
-}
-
-// Get a single report
+// Get a specific report by ID
 export async function GET(request, { params }) {
   try {
     await dbConnect();
     
     const id = params.id;
     
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid report ID' },
-        { status: 400 }
-      );
-    }
-    
+    // Find the report and populate related fields
     const report = await Report.findById(id)
       .populate('submittedBy', 'name email')
-      .populate('assignedTo.department', 'name');
+      .populate('assignedTo.department', 'name contactInfo');
     
     if (!report) {
       return NextResponse.json(
-        { error: 'Report not found' },
+        { error: 'Report not found' }, 
         { status: 404 }
       );
     }
@@ -51,6 +44,10 @@ export async function PATCH(request, { params }) {
   try {
     await dbConnect();
     
+    const id = params.id;
+    const data = await request.json();
+    
+    // Get the session to check permissions
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
       return NextResponse.json(
@@ -58,17 +55,6 @@ export async function PATCH(request, { params }) {
         { status: 401 }
       );
     }
-    
-    const id = params.id;
-    
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid report ID' },
-        { status: 400 }
-      );
-    }
-    
-    const data = await request.json();
     
     // Find the report
     const report = await Report.findById(id);
@@ -80,50 +66,95 @@ export async function PATCH(request, { params }) {
       );
     }
     
-    // Check permissions
-    // If not admin and not the submitter, deny access
-    if (session.user.role !== 'admin' && 
-        report.submittedBy.toString() !== session.user.id) {
+    // Check if user has permission to update this report
+    const isAdmin = session.user.role === 'admin';
+    const isOwner = session.user.id === report.submittedBy.toString();
+    
+    if (!isAdmin && !isOwner) {
       return NextResponse.json(
-        { error: 'You are not authorized to update this report' },
+        { error: 'You do not have permission to update this report' },
         { status: 403 }
       );
     }
     
-    // Handle status change
+    // If updating status, add to status history
     if (data.status && data.status !== report.status) {
-      report.statusHistory.push({
+      const statusUpdate = {
         status: data.status,
         timestamp: new Date(),
-        comment: data.statusComment || `Status changed to ${data.status}`
-      });
+        comment: data.statusComment || `Status updated to ${data.status}`
+      };
       
-      // If status is resolved, set resolvedAt
+      // Add to status history array
+      data.statusHistory = [statusUpdate, ...(report.statusHistory || [])];
+      
+      // Set resolved date if status is 'resolved'
       if (data.status === 'resolved') {
-        report.resolvedAt = new Date();
+        data.resolvedAt = new Date();
+      }
+      
+      // Store old status for notification
+      const oldStatus = report.status;
+      
+      // If report is being assigned to a department
+      if (data.status === 'assigned' && data.assignedTo && data.assignedTo.department) {
+        try {
+          // Get department details
+          const department = await Department.findById(data.assignedTo.department);
+          
+          // Notify the report owner
+          await notifyReportAssigned(
+            report.submittedBy, 
+            report._id, 
+            report.title, 
+            department._id,
+            department.name
+          );
+        } catch (notifyError) {
+          console.error('Error sending assignment notification:', notifyError);
+          // Continue with the update even if notification fails
+        }
+      }
+      
+      // If report is being resolved
+      if (data.status === 'resolved') {
+        try {
+          await notifyReportResolved(
+            report.submittedBy, 
+            report._id, 
+            report.title
+          );
+        } catch (notifyError) {
+          console.error('Error sending resolution notification:', notifyError);
+        }
+      }
+      
+      // For all status changes, notify the report owner
+      try {
+        await notifyReportStatusChange(
+          report.submittedBy, 
+          report._id, 
+          report.title, 
+          oldStatus, 
+          data.status
+        );
+      } catch (notifyError) {
+        console.error('Error sending status change notification:', notifyError);
       }
     }
     
-    // Update allowed fields
-    const allowedFields = ['title', 'description', 'category', 'status', 'priority', 'images'];
+    // Set the updated timestamp
+    data.updatedAt = new Date();
     
-    // Admin-only fields
-    if (session.user.role === 'admin') {
-      allowedFields.push('assignedTo');
-    }
+    // Update the report
+    const updatedReport = await Report.findByIdAndUpdate(
+      id,
+      { $set: data },
+      { new: true, runValidators: true }
+    ).populate('submittedBy', 'name email')
+     .populate('assignedTo.department', 'name contactInfo');
     
-    allowedFields.forEach(field => {
-      if (data[field] !== undefined) {
-        report[field] = data[field];
-      }
-    });
-    
-    // Always update the updatedAt field
-    report.updatedAt = new Date();
-    
-    await report.save();
-    
-    return NextResponse.json(report);
+    return NextResponse.json(updatedReport);
   } catch (error) {
     console.error('Error updating report:', error);
     return NextResponse.json(
@@ -138,6 +169,9 @@ export async function DELETE(request, { params }) {
   try {
     await dbConnect();
     
+    const id = params.id;
+    
+    // Get the session to check permissions
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
       return NextResponse.json(
@@ -146,15 +180,7 @@ export async function DELETE(request, { params }) {
       );
     }
     
-    const id = params.id;
-    
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid report ID' },
-        { status: 400 }
-      );
-    }
-    
+    // Only admins or the report owner can delete a report
     const report = await Report.findById(id);
     
     if (!report) {
@@ -164,11 +190,12 @@ export async function DELETE(request, { params }) {
       );
     }
     
-    // Only admins or the original submitter can delete a report
-    if (session.user.role !== 'admin' && 
-        report.submittedBy.toString() !== session.user.id) {
+    const isAdmin = session.user.role === 'admin';
+    const isOwner = session.user.id === report.submittedBy.toString();
+    
+    if (!isAdmin && !isOwner) {
       return NextResponse.json(
-        { error: 'You are not authorized to delete this report' },
+        { error: 'You do not have permission to delete this report' },
         { status: 403 }
       );
     }

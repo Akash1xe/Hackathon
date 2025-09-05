@@ -1,19 +1,24 @@
-// File: c:\hackathon\src\app\reports\[id]\page.jsx
 import { notFound } from 'next/navigation';
 import { getServerSession } from '@/lib/getServerSession';
 import ReportDetails from '@/components/ReportDetails';
 import StatusUpdateForm from '@/components/StatusUpdateForm';
 import Link from 'next/link';
+import { getApiUrl } from '@/lib/apiUtils';
 
 async function getReport(id) {
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/reports/${id}`, {
-      cache: 'no-store'
+    // Use our utility function to ensure proper URL construction
+    const url = getApiUrl(`/api/reports/${id}`);
+    
+    // Include the full protocol, hostname, and path for the fetch
+    const res = await fetch(url, {
+      cache: 'no-store',
+      next: { revalidate: 0 }, // Ensure fresh data on each request
     });
     
     if (!res.ok) {
       if (res.status === 404) return null;
-      throw new Error('Failed to fetch report');
+      throw new Error(`Failed to fetch report: ${res.statusText}`);
     }
     
     return res.json();
@@ -24,8 +29,21 @@ async function getReport(id) {
 }
 
 export default async function ReportPage({ params }) {
+  // In Next.js 15, we need to await params to ensure they're fully resolved
+  params = await params;
+  
+  if (!params || !params.id) {
+    notFound();
+  }
+  
+  // Ensure id is a string and properly formatted
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  
+  // First get the session
   const session = await getServerSession();
-  const report = await getReport(params.id);
+  
+  // Now fetch data with the resolved ID
+  const report = await getReport(id);
   
   if (!report) {
     notFound();
@@ -54,7 +72,7 @@ export default async function ReportPage({ params }) {
             )}
           </div>
         </div>
-        
+
         <div className="bg-white shadow-md rounded-lg overflow-hidden mb-8">
           <ReportDetails report={report} />
           
@@ -68,4 +86,14 @@ export default async function ReportPage({ params }) {
       </div>
     </div>
   );
+}
+
+// Add this to properly handle params
+export async function generateMetadata({ params }) {
+  // In Next.js 15, we need to await params to ensure they're fully resolved
+  params = await params;
+  
+  return {
+    title: `Report Details - ${params.id}`,
+  };
 }

@@ -2,6 +2,10 @@
 import { format } from 'date-fns';
 
 export default function ReportDetails({ report }) {
+  if (!report) {
+    return <div className="p-6">Report data not available</div>;
+  }
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-start">
@@ -21,7 +25,9 @@ export default function ReportDetails({ report }) {
         </div>
         <div className="text-right">
           <p className="text-sm text-gray-500">Submitted on</p>
-          <p className="text-sm font-medium">{format(new Date(report.createdAt), 'MMM d, yyyy')}</p>
+          <p className="text-sm font-medium">
+            {report.createdAt ? format(new Date(report.createdAt), 'MMM d, yyyy') : 'Unknown date'}
+          </p>
         </div>
       </div>
       
@@ -30,13 +36,17 @@ export default function ReportDetails({ report }) {
         <p className="text-gray-700 whitespace-pre-line">{report.description}</p>
       </div>
       
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-2">Location</h3>
-        <p className="text-gray-700">{report.location.address}</p>
-        <p className="text-sm text-gray-500 mt-1">
-          Coordinates: {report.location.coordinates[1]}, {report.location.coordinates[0]}
-        </p>
-      </div>
+      {report.location && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-2">Location</h3>
+          <p className="text-gray-700">{report.location.address}</p>
+          {report.location.coordinates && (
+            <p className="text-sm text-gray-500 mt-1">
+              Coordinates: {report.location.coordinates[1]}, {report.location.coordinates[0]}
+            </p>
+          )}
+        </div>
+      )}
       
       {report.images && report.images.length > 0 && (
         <div className="mt-6">
@@ -54,10 +64,12 @@ export default function ReportDetails({ report }) {
         </div>
       )}
       
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-2">Submitted By</h3>
-        <p className="text-gray-700">{report.submittedBy.name}</p>
-      </div>
+      {report.submittedBy && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-2">Submitted By</h3>
+          <p className="text-gray-700">{report.submittedBy.name}</p>
+        </div>
+      )}
       
       {report.assignedTo && report.assignedTo.department && (
         <div className="mt-6">
@@ -71,39 +83,44 @@ export default function ReportDetails({ report }) {
         </div>
       )}
       
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-2">Status History</h3>
-        <div className="border rounded-md divide-y">
-          {report.statusHistory.map((status, index) => (
-            <div key={index} className="p-3 flex justify-between">
-              <div>
-                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(status.status)}`}>
-                  {formatStatus(status.status)}
-                </span>
-                {status.comment && (
-                  <p className="mt-1 text-sm text-gray-600">{status.comment}</p>
-                )}
+      {report.statusHistory && report.statusHistory.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-2">Status History</h3>
+          <div className="border rounded-md divide-y">
+            {report.statusHistory.map((status, index) => (
+              <div key={index} className="p-3 flex justify-between">
+                <div>
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(status.status)}`}>
+                    {formatStatus(status.status)}
+                  </span>
+                  {status.comment && (
+                    <p className="mt-1 text-sm text-gray-600">{status.comment}</p>
+                  )}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {status.timestamp ? format(new Date(status.timestamp), 'MMM d, yyyy h:mm a') : 'Unknown date'}
+                </div>
               </div>
-              <div className="text-sm text-gray-500">
-                {format(new Date(status.timestamp), 'MMM d, yyyy h:mm a')}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function formatCategory(category) {
+  if (!category) return 'Unknown';
   return category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
 function formatStatus(status) {
+  if (!status) return 'Unknown';
   return status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
 function formatPriority(priority) {
+  if (!priority) return 'Unknown';
   return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 

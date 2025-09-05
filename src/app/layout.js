@@ -1,6 +1,7 @@
 // File: c:\hackathon\src\app\layout.js
 import { AuthProvider } from './providers';
 import Navbar from '@/components/Navbar';
+import NotificationBell from '@/components/NotificationBell';
 import './globals.css';
 
 export const metadata = {
@@ -14,6 +15,7 @@ export default function RootLayout({ children }) {
       <body>
         <AuthProvider>
           <Navbar />
+            <NotificationBell />
           <main>{children}</main>
         </AuthProvider>
       </body>
