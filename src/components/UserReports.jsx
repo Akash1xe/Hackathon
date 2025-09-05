@@ -69,7 +69,7 @@ export default function UserReports({ userId }) {
                   View
                 </Link>
                 {report.status !== 'resolved' && report.status !== 'rejected' && (
-                  <Link href={`/reports/${report._id}/edit`} className="text-yellow-600 hover:text-yellow-900">
+                  <Link href={`/dashboard/edit/${report._id}`} className="text-yellow-600 hover:text-yellow-900">
                     Edit
                   </Link>
                 )}
