@@ -67,7 +67,10 @@ export default function EditReportPage() {
         title: reportData.title || '',
         description: reportData.description || '',
         category: reportData.category || '',
-        location: reportData.location || '',
+        location: reportData.location || {
+          address: '',
+          coordinates: [0, 0]
+        },
         priority: reportData.priority || 'medium'
       });
     } catch (err) {
@@ -80,7 +83,19 @@ export default function EditReportPage() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Handle location fields differently
+    if (name === 'locationAddress') {
+      setFormData(prev => ({
+        ...prev,
+        location: {
+          ...prev.location,
+          address: value
+        }
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
     
     // Clear messages when form changes
     if (success) setSuccess('');
@@ -96,6 +111,23 @@ export default function EditReportPage() {
     try {
       // Prepare update data
       const updateData = { ...formData };
+      
+      // Ensure location data is properly structured
+      if (updateData.location) {
+        // Make sure coordinates are properly formatted
+        if (typeof updateData.location.coordinates === 'string') {
+          // Convert string coordinates to array if needed
+          updateData.location.coordinates = updateData.location.coordinates.split(',').map(Number);
+        } else if (!Array.isArray(updateData.location.coordinates)) {
+          // Use the original coordinates from the report if available
+          updateData.location.coordinates = report.location?.coordinates || [0, 0];
+        }
+        
+        // Ensure we have an address
+        if (!updateData.location.address && report.location?.address) {
+          updateData.location.address = report.location.address;
+        }
+      }
       
       // Remove empty fields
       Object.keys(updateData).forEach(key => {
@@ -258,19 +290,22 @@ export default function EditReportPage() {
             </div>
             
             <div>
-              <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
-                Location *
+              <label htmlFor="locationAddress" className="block text-sm font-medium text-gray-700 mb-1">
+                Location Address *
               </label>
               <input
                 type="text"
-                id="location"
-                name="location"
+                id="locationAddress"
+                name="locationAddress"
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                value={formData.location}
+                value={formData.location?.address || ''}
                 onChange={handleChange}
                 placeholder="Street address or landmark"
               />
+              <p className="mt-1 text-xs text-gray-500">
+                The location coordinates will be preserved from the original report.
+              </p>
             </div>
             
             <div className="flex justify-end space-x-4">

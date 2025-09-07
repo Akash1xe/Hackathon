@@ -15,7 +15,7 @@ export async function GET(request, { params }) {
   try {
     await dbConnect();
     
-    const id = params.id;
+    const { id } = params;
     
     // Find the report and populate related fields
     const report = await Report.findById(id)
@@ -44,7 +44,7 @@ export async function PATCH(request, { params }) {
   try {
     await dbConnect();
     
-    const id = params.id;
+    const { id } = params;
     const data = await request.json();
     
     // Get the session to check permissions
@@ -146,20 +146,66 @@ export async function PATCH(request, { params }) {
     // Set the updated timestamp
     data.updatedAt = new Date();
     
-    // Update the report
-    const updatedReport = await Report.findByIdAndUpdate(
-      id,
-      { $set: data },
-      { new: true, runValidators: true }
-    ).populate('submittedBy', 'name email')
-     .populate('assignedTo.department', 'name contactInfo');
+    // Handle location data to prevent validation errors
+    if (data.location) {
+      // If location is being updated but coordinates or address are missing, preserve existing values
+      if (!data.location.coordinates || !data.location.address) {
+        const existingLocation = report.location || {};
+        data.location = {
+          ...existingLocation,
+          ...data.location
+        };
+      }
+    } else if (report.location) {
+      // If location is not provided in the update, keep the existing location
+      data.location = report.location;
+    }
     
-    return NextResponse.json(updatedReport);
+    try {
+      // Update the report
+      const updatedReport = await Report.findByIdAndUpdate(
+        id,
+        { $set: data },
+        { new: true, runValidators: true }
+      ).populate('submittedBy', 'name email')
+       .populate('assignedTo.department', 'name contactInfo');
+      
+      return NextResponse.json(updatedReport);
+    } catch (updateError) {
+      console.error('Validation error:', updateError);
+      
+      // More specific error message based on the validation errors
+      if (updateError.name === 'ValidationError') {
+        const validationErrors = Object.keys(updateError.errors).map(key => {
+          return `${key}: ${updateError.errors[key].message}`;
+        }).join(', ');
+        
+        return NextResponse.json(
+          { error: `Validation failed: ${validationErrors}` },
+          { status: 400 }
+        );
+      }
+      
+      throw updateError; // Re-throw to be caught by the outer catch
+    }
   } catch (error) {
     console.error('Error updating report:', error);
+    
+    // More detailed error response
+    let errorMessage = 'Failed to update report';
+    let statusCode = 500;
+    
+    if (error.name === 'ValidationError') {
+      errorMessage = `Validation error: ${error.message}`;
+      statusCode = 400;
+    } else if (error.name === 'CastError') {
+      errorMessage = `Invalid ID format: ${error.message}`;
+      statusCode = 400;
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to update report' },
-      { status: 500 }
+      { error: errorMessage },
+      { status: statusCode }
     );
   }
 }
@@ -169,7 +215,7 @@ export async function DELETE(request, { params }) {
   try {
     await dbConnect();
     
-    const id = params.id;
+    const { id } = params;
     
     // Get the session to check permissions
     const session = await getServerSession(authOptions);
