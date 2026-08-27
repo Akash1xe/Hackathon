@@ -1,6 +1,12 @@
 import mongoose from 'mongoose';
 
 const ReportSchema = new mongoose.Schema({
+  referenceId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
   title: {
     type: String,
     required: true,
@@ -8,7 +14,8 @@ const ReportSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   location: {
     type: {
@@ -22,7 +29,8 @@ const ReportSchema = new mongoose.Schema({
     },
     address: {
       type: String,
-      required: true
+      required: true,
+      trim: true
     }
   },
   category: {
@@ -64,21 +72,39 @@ const ReportSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     },
-    comment: String
+    comment: String,
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   }],
-  resolvedAt: Date,
-  createdAt: {
-    type: Date,
-    default: Date.now
+  adminComment: {
+    type: String,
+    trim: true
   },
-  updatedAt: {
-    type: Date,
-    default: Date.now
+  resolutionNote: {
+    type: String,
+    trim: true
+  },
+  resolvedAt: Date,
+  deletedAt: Date
+}, { timestamps: true });
+
+ReportSchema.pre('validate', function setReferenceId(next) {
+  if (!this.referenceId) {
+    const date = new Date();
+    const year = String(date.getUTCFullYear()).slice(-2);
+    const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+    this.referenceId = `SAM-${year}-${random}`;
   }
+  next();
 });
 
 // Create a geospatial index for location-based queries
-ReportSchema.index({ "location.coordinates": "2dsphere" });
+ReportSchema.index({ location: '2dsphere' });
+ReportSchema.index({ submittedBy: 1, createdAt: -1 });
+ReportSchema.index({ status: 1, category: 1, createdAt: -1 });
+ReportSchema.index({ title: 'text', description: 'text', 'location.address': 'text' });
 
 const Report = mongoose.models.Report || mongoose.model('Report', ReportSchema);
 

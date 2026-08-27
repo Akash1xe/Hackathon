@@ -1,262 +1,100 @@
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError } from '@/lib/http';
+import { isValidObjectId, parseCitizenReport } from '@/lib/validation';
 import Report from '@/model/Report';
-import Department from '@/model/Department';
-import { 
-  notifyReportStatusChange, 
-  notifyReportAssigned, 
-  notifyReportResolved 
-} from '@/lib/createNotification';
 
-// Get a specific report by ID
+async function resolveId(params) {
+  const resolved = await params;
+  return resolved?.id;
+}
+
 export async function GET(request, { params }) {
   try {
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid report ID.', 400);
     await dbConnect();
-    
-    const { id } = params;
-    
-    // Find the report and populate related fields
-    const report = await Report.findById(id)
-      .populate('submittedBy', 'name email')
-      .populate('assignedTo.department', 'name contactInfo');
-    
-    if (!report) {
-      return NextResponse.json(
-        { error: 'Report not found' }, 
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(report);
+    const [report, session] = await Promise.all([
+      Report.findOne({ _id: id, deletedAt: { $exists: false } })
+        .select('-adminComment')
+        .populate('submittedBy', 'name avatar')
+        .populate('assignedTo.department', 'name description contactEmail contactPhone')
+        .lean(),
+      getServerSession(authOptions)
+    ]);
+    if (!report) return apiError('Report not found.', 404);
+    const ownerId = report.submittedBy?._id?.toString();
+    return NextResponse.json({
+      ...report,
+      submittedBy: report.submittedBy
+        ? { name: report.submittedBy.name, avatar: report.submittedBy.avatar }
+        : null,
+      statusHistory: (report.statusHistory || []).map(({ status, timestamp, comment }) => ({
+        status,
+        timestamp,
+        comment
+      })),
+      viewer: {
+        canEdit: Boolean(session?.user && ownerId === session.user.id && ['submitted', 'in_review'].includes(report.status)),
+        isAdmin: session?.user?.role === 'admin'
+      }
+    });
   } catch (error) {
-    console.error('Error fetching report:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch report' },
-      { status: 500 }
-    );
+    console.error('Unable to fetch report:', error);
+    return apiError('Unable to load this report.', 500);
   }
 }
 
-// Update a report
 export async function PATCH(request, { params }) {
   try {
-    await dbConnect();
-    
-    const { id } = params;
-    const data = await request.json();
-    
-    // Get the session to check permissions
     const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
-      return NextResponse.json(
-        { error: 'You must be logged in to update a report' },
-        { status: 401 }
-      );
+    if (!session?.user) return apiError('Please sign in to update a report.', 401);
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid report ID.', 400);
+    await dbConnect();
+
+    const report = await Report.findOne({ _id: id, deletedAt: { $exists: false } });
+    if (!report) return apiError('Report not found.', 404);
+    if (report.submittedBy.toString() !== session.user.id) return apiError('You cannot edit this report.', 403);
+    if (!['submitted', 'in_review'].includes(report.status)) {
+      return apiError('This report can no longer be edited because work has started.', 409);
     }
-    
-    // Find the report
-    const report = await Report.findById(id);
-    
-    if (!report) {
-      return NextResponse.json(
-        { error: 'Report not found' },
-        { status: 404 }
-      );
-    }
-    
-    // Check if user has permission to update this report
-    const isAdmin = session.user.role === 'admin';
-    const isOwner = session.user.id === report.submittedBy.toString();
-    
-    if (!isAdmin && !isOwner) {
-      return NextResponse.json(
-        { error: 'You do not have permission to update this report' },
-        { status: 403 }
-      );
-    }
-    
-    // If updating status, add to status history
-    if (data.status && data.status !== report.status) {
-      const statusUpdate = {
-        status: data.status,
-        timestamp: new Date(),
-        comment: data.statusComment || `Status updated to ${data.status}`
-      };
-      
-      // Add to status history array
-      data.statusHistory = [statusUpdate, ...(report.statusHistory || [])];
-      
-      // Set resolved date if status is 'resolved'
-      if (data.status === 'resolved') {
-        data.resolvedAt = new Date();
-      }
-      
-      // Store old status for notification
-      const oldStatus = report.status;
-      
-      // If report is being assigned to a department
-      if (data.status === 'assigned' && data.assignedTo && data.assignedTo.department) {
-        try {
-          // Get department details
-          const department = await Department.findById(data.assignedTo.department);
-          
-          // Notify the report owner
-          await notifyReportAssigned(
-            report.submittedBy, 
-            report._id, 
-            report.title, 
-            department._id,
-            department.name
-          );
-        } catch (notifyError) {
-          console.error('Error sending assignment notification:', notifyError);
-          // Continue with the update even if notification fails
-        }
-      }
-      
-      // If report is being resolved
-      if (data.status === 'resolved') {
-        try {
-          await notifyReportResolved(
-            report.submittedBy, 
-            report._id, 
-            report.title
-          );
-        } catch (notifyError) {
-          console.error('Error sending resolution notification:', notifyError);
-        }
-      }
-      
-      // For all status changes, notify the report owner
-      try {
-        await notifyReportStatusChange(
-          report.submittedBy, 
-          report._id, 
-          report.title, 
-          oldStatus, 
-          data.status
-        );
-      } catch (notifyError) {
-        console.error('Error sending status change notification:', notifyError);
-      }
-    }
-    
-    // Set the updated timestamp
-    data.updatedAt = new Date();
-    
-    // Handle location data to prevent validation errors
-    if (data.location) {
-      // If location is being updated but coordinates or address are missing, preserve existing values
-      if (!data.location.coordinates || !data.location.address) {
-        const existingLocation = report.location || {};
-        data.location = {
-          ...existingLocation,
-          ...data.location
-        };
-      }
-    } else if (report.location) {
-      // If location is not provided in the update, keep the existing location
-      data.location = report.location;
-    }
-    
-    try {
-      // Update the report
-      const updatedReport = await Report.findByIdAndUpdate(
-        id,
-        { $set: data },
-        { new: true, runValidators: true }
-      ).populate('submittedBy', 'name email')
-       .populate('assignedTo.department', 'name contactInfo');
-      
-      return NextResponse.json(updatedReport);
-    } catch (updateError) {
-      console.error('Validation error:', updateError);
-      
-      // More specific error message based on the validation errors
-      if (updateError.name === 'ValidationError') {
-        const validationErrors = Object.keys(updateError.errors).map(key => {
-          return `${key}: ${updateError.errors[key].message}`;
-        }).join(', ');
-        
-        return NextResponse.json(
-          { error: `Validation failed: ${validationErrors}` },
-          { status: 400 }
-        );
-      }
-      
-      throw updateError; // Re-throw to be caught by the outer catch
-    }
+
+    const parsed = parseCitizenReport(await request.json(), { partial: true });
+    if (!parsed.valid) return apiError('Please correct the report details.', 400, parsed.errors);
+    Object.assign(report, parsed.value);
+    await report.save();
+    return NextResponse.json(report);
   } catch (error) {
-    console.error('Error updating report:', error);
-    
-    // More detailed error response
-    let errorMessage = 'Failed to update report';
-    let statusCode = 500;
-    
-    if (error.name === 'ValidationError') {
-      errorMessage = `Validation error: ${error.message}`;
-      statusCode = 400;
-    } else if (error.name === 'CastError') {
-      errorMessage = `Invalid ID format: ${error.message}`;
-      statusCode = 400;
-    }
-    
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: statusCode }
-    );
+    console.error('Unable to update report:', error);
+    return apiError('Unable to update this report.', 500);
   }
 }
 
-// Delete a report
 export async function DELETE(request, { params }) {
   try {
-    await dbConnect();
-    
-    const { id } = params;
-    
-    // Get the session to check permissions
     const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
-      return NextResponse.json(
-        { error: 'You must be logged in to delete a report' },
-        { status: 401 }
-      );
-    }
-    
-    // Only admins or the report owner can delete a report
-    const report = await Report.findById(id);
-    
-    if (!report) {
-      return NextResponse.json(
-        { error: 'Report not found' },
-        { status: 404 }
-      );
-    }
-    
+    if (!session?.user) return apiError('Please sign in to delete a report.', 401);
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid report ID.', 400);
+    await dbConnect();
+
+    const report = await Report.findOne({ _id: id, deletedAt: { $exists: false } });
+    if (!report) return apiError('Report not found.', 404);
     const isAdmin = session.user.role === 'admin';
-    const isOwner = session.user.id === report.submittedBy.toString();
-    
-    if (!isAdmin && !isOwner) {
-      return NextResponse.json(
-        { error: 'You do not have permission to delete this report' },
-        { status: 403 }
-      );
+    const isOwner = report.submittedBy.toString() === session.user.id;
+    if (!isAdmin && !isOwner) return apiError('You cannot delete this report.', 403);
+    if (!isAdmin && !['submitted', 'in_review'].includes(report.status)) {
+      return apiError('This report can no longer be removed because work has started.', 409);
     }
-    
-    await Report.findByIdAndDelete(id);
-    
-    return NextResponse.json(
-      { message: 'Report deleted successfully' },
-      { status: 200 }
-    );
+
+    report.deletedAt = new Date();
+    await report.save({ validateBeforeSave: false });
+    return NextResponse.json({ message: 'Report removed successfully.' });
   } catch (error) {
-    console.error('Error deleting report:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete report' },
-      { status: 500 }
-    );
+    console.error('Unable to delete report:', error);
+    return apiError('Unable to remove this report.', 500);
   }
 }

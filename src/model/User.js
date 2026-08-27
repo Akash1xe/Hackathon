@@ -15,7 +15,8 @@ const UserSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true
+    required: true,
+    select: false
   },
   role: {
     type: String,
@@ -23,22 +24,18 @@ const UserSchema = new mongoose.Schema({
     default: 'citizen'
   },
   phone: {
-    type: String
+    type: String,
+    trim: true
   },
-  notifications: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Notification'
-    }
-  ],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+  avatar: String,
+  active: {
+    type: Boolean,
+    default: true
+  },
+  lastLoginAt: Date
+}, { timestamps: true });
 
-
-
+UserSchema.index({ role: 1, active: 1 });
 
 const UserModel = mongoose.models.User || mongoose.model('User', UserSchema);
 

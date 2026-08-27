@@ -1,24 +1,12 @@
-// File: c:\hackathon\src\app\layout.js
-import { AuthProvider } from './providers';
-import Navbar from '@/components/Navbar';
-import NotificationBell from '@/components/NotificationBell';
 import './globals.css';
+import Navbar from '@/components/Navbar';
+import Providers from './providers';
 
 export const metadata = {
-  title: 'Civic Issue Reporting Platform',
-  description: 'Report and track local civic issues in your community',
+  title: { default: 'Samvid — City Action Network', template: '%s · Samvid' },
+  description: 'Report local civic issues, track public action, and follow each case through resolution.'
 };
 
 export default function RootLayout({ children }) {
-  return (
-    <html lang="en">
-      <body>
-        <AuthProvider>
-          <Navbar />
-            <NotificationBell />
-          <main>{children}</main>
-        </AuthProvider>
-      </body>
-    </html>
-  );
+  return <html lang="en"><body><Providers><Navbar />{children}</Providers></body></html>;
 }

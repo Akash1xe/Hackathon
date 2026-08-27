@@ -1,70 +1,27 @@
-// File: c:\hackathon\src\app\api\admin\users\route.js
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError, parsePagination } from '@/lib/http';
+import { cleanText, escapeRegex } from '@/lib/validation';
 import User from '@/model/User';
 
 export async function GET(request) {
   try {
-    await dbConnect();
-    
-    // Check if user is admin
     const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 403 }
-      );
-    }
-    
+    if (session?.user?.role !== 'admin') return apiError('Administrator access required.', 403);
     const { searchParams } = new URL(request.url);
-    
-    // Parse pagination parameters
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const skip = (page - 1) * limit;
-    
-    // Parse filter parameters
-    const role = searchParams.get('role');
-    const search = searchParams.get('search');
-    
-    // Build query
+    const { page, limit, skip } = parsePagination(searchParams, { limit: 20, maxLimit: 100 });
+    const role = cleanText(searchParams.get('role'), 20);
+    const search = cleanText(searchParams.get('search'), 100);
     const query = {};
-    if (role) query.role = role;
-    
-    // Add text search if provided
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    // Get users
-    const users = await User.find(query)
-      .select('-password') // Exclude sensitive fields
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-    
-    // Get total count for pagination
-    const total = await User.countDocuments(query);
-    
-    return NextResponse.json({
-      users,
-      pagination: {
-        total,
-        page,
-        limit,
-        pages: Math.ceil(total / limit)
-      }
-    });
+    if (['citizen', 'admin'].includes(role)) query.role = role;
+    if (search) { const safe = escapeRegex(search); query.$or = [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }]; }
+    await dbConnect();
+    const [users, total] = await Promise.all([User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit), User.countDocuments(query)]);
+    return NextResponse.json({ users, pagination: { total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) } });
   } catch (error) {
-    console.error('Error fetching users:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch users' },
-      { status: 500 }
-    );
+    console.error('Unable to load users:', error);
+    return apiError('Unable to load users.', 500);
   }
 }

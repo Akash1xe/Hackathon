@@ -1,83 +1,29 @@
-// File: c:\hackathon\src\app\api\admin\map-data\route.js
-
-// in this file the admin are retrieving the map data for the reports
-
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError } from '@/lib/http';
+import { CATEGORY_VALUES, STATUS_VALUES } from '@/lib/constants';
+import { cleanText } from '@/lib/validation';
 import Report from '@/model/Report';
 
 export async function GET(request) {
   try {
-    await dbConnect();
-    
-    // Check if user is admin
     const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 403 }
-      );
-    }
-    
+    if (session?.user?.role !== 'admin') return apiError('Administrator access required.', 403);
     const { searchParams } = new URL(request.url);
-    
-    // Optional filters
-    const status = searchParams.get('status');
-    const category = searchParams.get('category');
-    const days = parseInt(searchParams.get('days') || '30');
-    
-    // Build query
-    const query = {};
-    
-    // Add status filter if provided
-    if (status) query.status = status;
-    
-    // Add category filter if provided
-    if (category) query.category = category;
-    
-    // Add date filter - only show reports from the last X days
-    if (days > 0) {
-      const dateThreshold = new Date();
-      dateThreshold.setDate(dateThreshold.getDate() - days);
-      query.createdAt = { $gte: dateThreshold };
-    }
-    
-    // Ensure we only get reports with valid location data
-    query['location.coordinates'] = { $exists: true, $type: 'array' };
-    
-    // Get reports with location data
-    const reports = await Report.find(query)
-      .select('_id title description category status priority location createdAt')
-      .populate('submittedBy', 'name email')
-      .sort({ createdAt: -1 });
-    
-    // Format the data for map display
-    const mapData = reports.map(report => ({
-      id: report._id.toString(),
-      title: report.title,
-      description: report.description,
-      category: report.category,
-      status: report.status,
-      priority: report.priority,
-      location: {
-        coordinates: report.location.coordinates,
-        address: report.location.address
-      },
-      submittedBy: report.submittedBy ? {
-        name: report.submittedBy.name,
-        email: report.submittedBy.email
-      } : null,
-      createdAt: report.createdAt
-    }));
-    
-    return NextResponse.json({ mapData });
+    const status = cleanText(searchParams.get('status'), 30);
+    const category = cleanText(searchParams.get('category'), 40);
+    const days = Math.min(3650, Math.max(0, Number(searchParams.get('days') || 90)));
+    const query = { deletedAt: { $exists: false }, 'location.coordinates.1': { $exists: true } };
+    if (STATUS_VALUES.includes(status)) query.status = status;
+    if (CATEGORY_VALUES.includes(category)) query.category = category;
+    if (days) query.createdAt = { $gte: new Date(Date.now() - days * 86_400_000) };
+    await dbConnect();
+    const reports = await Report.find(query).select('referenceId title category status priority location createdAt').sort({ createdAt: -1 }).limit(2000);
+    return NextResponse.json({ mapData: reports.map((report) => ({ id: report._id, referenceId: report.referenceId, title: report.title, category: report.category, status: report.status, priority: report.priority, location: report.location, createdAt: report.createdAt })) });
   } catch (error) {
-    console.error('Error fetching map data:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch map data' },
-      { status: 500 }
-    );
+    console.error('Unable to load map reports:', error);
+    return apiError('Unable to load the city map.', 500);
   }
 }

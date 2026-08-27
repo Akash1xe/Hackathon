@@ -1,34 +1,25 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
-const connection = {}; // creating connection object
+const cached = globalThis.__samvidMongo || { connection: null, promise: null };
+globalThis.__samvidMongo = cached;
 
-async function dbConnect() {
-    try {
-        // Check if MONGODB_URI is set
-        if (!process.env.MONGODB_URI) {
-            throw new Error("MONGODB_URI is not defined in environment variables");
-        }
+export default async function dbConnect() {
+  if (cached.connection) return cached.connection;
+  if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is not configured.');
 
-        if (connection.isConnected) {
-            console.log("Already connected to the database");
-            return; // if we are already connected to the database then we are returning from the function
-        }
-        
-        console.log("Connecting to MongoDB...");
-        const db = await mongoose.connect(process.env.MONGODB_URI);
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(process.env.MONGODB_URI, {
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 8_000,
+      maxPoolSize: 10
+    });
+  }
 
-        console.log("Database connected successfully");
-        connection.isConnected = db.connections[0].readyState;
-    } catch (error) {
-        console.error("DB connection failed:", error.message); // if the connection fails then we are logging the error
-        console.error("Stack trace:", error.stack);
-        // Don't exit the process in production as it would crash the server
-        if (process.env.NODE_ENV !== 'production') {
-            console.error("Exiting process due to database connection failure");
-            process.exit(1);
-        }
-    }
+  try {
+    cached.connection = await cached.promise;
+    return cached.connection;
+  } catch (error) {
+    cached.promise = null;
+    throw error;
+  }
 }
-
-export default dbConnect;
-// this file is used to connect to the database using mongoose

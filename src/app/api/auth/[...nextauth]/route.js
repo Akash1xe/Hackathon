@@ -1,80 +1,57 @@
-// File: c:\hackathon\src\app\api\auth\[...nextauth]\route.js
-import NextAuth from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcrypt";
-import dbConnect from "@/lib/dbConnect";
-import User from "@/model/User";
+import bcrypt from 'bcrypt';
+import NextAuth from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import dbConnect from '@/lib/dbConnect';
+import User from '@/model/User';
+import { normalizeEmail } from '@/lib/validation';
 
 export const authOptions = {
   providers: [
     CredentialsProvider({
-      name: "Credentials",
+      name: 'Email and password',
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' }
       },
       async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
         await dbConnect();
-        
-        // Find user by email
-        const user = await User.findOne({ email: credentials.email });
-        
-        // Check if user exists
-        if (!user) {
-          throw new Error("No user found with this email");
-        }
-        
-        // Check if the password is correct
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
-        
-        if (!isPasswordValid) {
-          throw new Error("Invalid password");
-        }
-        
-        // Return the user object (will be encoded in the JWT)
+        const user = await User.findOne({ email: normalizeEmail(credentials.email), active: { $ne: false } })
+          .select('+password');
+        if (!user || !await bcrypt.compare(credentials.password, user.password)) return null;
+
+        user.lastLoginAt = new Date();
+        await user.save({ validateBeforeSave: false });
         return {
           id: user._id.toString(),
           name: user.name,
           email: user.email,
           role: user.role,
-          image: user.image || null
+          image: user.avatar || null
         };
       }
     })
   ],
   callbacks: {
     async jwt({ token, user }) {
-      // Pass user role and ID to the token when user is first authenticated
       if (user) {
-        token.role = user.role;
         token.id = user.id;
+        token.role = user.role;
       }
       return token;
     },
     async session({ session, token }) {
-      // Pass token properties to the client session
-      if (token) {
+      if (session?.user && token) {
         session.user.id = token.id;
         session.user.role = token.role;
       }
       return session;
     }
   },
-  pages: {
-    signIn: '/auth/login',   // Custom sign-in page
-    signOut: '/',            // Redirect after sign-out
-    error: '/auth/error',    // Error page
-  },
-  session: {
-    strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  },
-  secret: process.env.NEXTAUTH_SECRET,
+  pages: { signIn: '/login', error: '/login' },
+  session: { strategy: 'jwt', maxAge: 7 * 24 * 60 * 60 },
+  secret: process.env.NEXTAUTH_SECRET
 };
 
 const handler = NextAuth(authOptions);
-
 export { handler as GET, handler as POST };

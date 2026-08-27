@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Samvid
 
-## Getting Started
+Samvid is a full-stack civic issue reporting platform that connects citizens with city response teams. Citizens can submit location-based reports with photo evidence, follow a public case timeline, and receive notifications as work progresses. Administrators can triage cases, set priority, assign departments, publish status updates, view geographic issue patterns, and send civic notices.
 
-First, run the development server:
+## Product capabilities
+
+- Secure citizen registration and credential-based authentication
+- Public, searchable civic report register
+- Location selection with OpenStreetMap and optional reverse geocoding
+- Photo evidence with validated local development uploads and Cloudinary production storage
+- Citizen dashboard, report editing rules, and case history
+- Notification inbox for case changes and public notices
+- Protected administrator dashboard and case queue
+- Status, priority, department assignment, and batch updates
+- Department directory and geographic operations map
+- MongoDB geospatial queries and privacy-safe public API responses
+
+## Technology
+
+- Next.js 15 App Router and React 19
+- Tailwind CSS 4
+- NextAuth credentials authentication
+- MongoDB and Mongoose
+- Leaflet and OpenStreetMap
+- Cloudinary-compatible production image uploads
+
+## Local setup
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Copy the environment template:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+3. Configure `MONGODB_URI` and `NEXTAUTH_SECRET` in `.env.local`.
+
+4. Start the application:
+
+   ```bash
+   npm run dev
+   ```
+
+Open `http://localhost:3000`.
+
+## Create the first administrator
+
+Register a normal citizen account, then promote it from the project directory:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run admin:promote -- citizen@example.com
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Public registration never accepts an administrator code or role.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Production configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Set `NEXTAUTH_URL` to the deployed origin and configure all three Cloudinary values for persistent photo uploads. `OPENCAGE_API_KEY` is optional; without it, the selected coordinates remain available and the address can be entered manually.
 
-## Learn More
+## Quality checks
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run lint
+npm test
+npm run build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Use `npm run check` to run all three gates in sequence.

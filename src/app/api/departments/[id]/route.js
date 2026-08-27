@@ -1,151 +1,81 @@
-// File: c:\hackathon\src\app\api\departments\[id]\route.js
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError } from '@/lib/http';
+import { CATEGORY_VALUES } from '@/lib/constants';
+import { cleanText, isValidEmail, isValidObjectId, normalizeEmail } from '@/lib/validation';
 import Department from '@/model/Department';
-import mongoose from 'mongoose';
 
-// Helper to check if ID is valid
-function isValidObjectId(id) {
-  return mongoose.Types.ObjectId.isValid(id);
+async function resolveId(params) {
+  const { id } = await params;
+  return id;
 }
 
-// Get a single department
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
+  return session?.user?.role === 'admin';
+}
+
 export async function GET(request, { params }) {
   try {
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid department ID.', 400);
     await dbConnect();
-    
-    const id = params.id;
-    
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid department ID' },
-        { status: 400 }
-      );
-    }
-    
-    const department = await Department.findById(id);
-    
-    if (!department) {
-      return NextResponse.json(
-        { error: 'Department not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(department);
+    const department = await Department.findById(id).select('name description categories contactEmail contactPhone active');
+    return department ? NextResponse.json(department) : apiError('Department not found.', 404);
   } catch (error) {
-    console.error('Error fetching department:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch department' },
-      { status: 500 }
-    );
+    console.error('Unable to load department:', error);
+    return apiError('Unable to load this department.', 500);
   }
 }
 
-// Update a department (admin only)
 export async function PATCH(request, { params }) {
   try {
+    if (!await requireAdmin()) return apiError('Administrator access required.', 403);
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid department ID.', 400);
+    const body = await request.json();
     await dbConnect();
-    
-    // Check if user is admin
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'You must be an admin to update departments' },
-        { status: 403 }
-      );
-    }
-    
-    const id = params.id;
-    
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid department ID' },
-        { status: 400 }
-      );
-    }
-    
-    const data = await request.json();
-    
     const department = await Department.findById(id);
-    
-    if (!department) {
-      return NextResponse.json(
-        { error: 'Department not found' },
-        { status: 404 }
-      );
+    if (!department) return apiError('Department not found.', 404);
+
+    if (body.name !== undefined) {
+      const name = cleanText(body.name, 100);
+      if (name.length < 2) return apiError('Department name is required.', 400);
+      department.name = name;
     }
-    
-    // Update fields
-    const allowedFields = [
-      'name', 'description', 'categories', 
-      'contactEmail', 'contactPhone', 'supervisors', 
-      'responsibleArea', 'active'
-    ];
-    
-    allowedFields.forEach(field => {
-      if (data[field] !== undefined) {
-        department[field] = data[field];
-      }
-    });
-    
+    if (body.description !== undefined) department.description = cleanText(body.description, 600);
+    if (body.contactEmail !== undefined) {
+      const email = normalizeEmail(body.contactEmail);
+      if (email && !isValidEmail(email)) return apiError('Enter a valid contact email.', 400);
+      department.contactEmail = email;
+    }
+    if (body.contactPhone !== undefined) department.contactPhone = cleanText(body.contactPhone, 30);
+    if (Array.isArray(body.categories)) department.categories = [...new Set(body.categories.filter((item) => CATEGORY_VALUES.includes(item)))];
+    if (typeof body.active === 'boolean') department.active = body.active;
     await department.save();
-    
     return NextResponse.json(department);
   } catch (error) {
-    console.error('Error updating department:', error);
-    return NextResponse.json(
-      { error: 'Failed to update department' },
-      { status: 500 }
-    );
+    if (error?.code === 11000) return apiError('A department with this name already exists.', 409);
+    console.error('Unable to update department:', error);
+    return apiError('Unable to update this department.', 500);
   }
 }
 
-// Delete a department (admin only)
 export async function DELETE(request, { params }) {
   try {
+    if (!await requireAdmin()) return apiError('Administrator access required.', 403);
+    const id = await resolveId(params);
+    if (!isValidObjectId(id)) return apiError('Invalid department ID.', 400);
     await dbConnect();
-    
-    // Check if user is admin
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'You must be an admin to delete departments' },
-        { status: 403 }
-      );
-    }
-    
-    const id = params.id;
-    
-    if (!isValidObjectId(id)) {
-      return NextResponse.json(
-        { error: 'Invalid department ID' },
-        { status: 400 }
-      );
-    }
-    
     const department = await Department.findById(id);
-    
-    if (!department) {
-      return NextResponse.json(
-        { error: 'Department not found' },
-        { status: 404 }
-      );
-    }
-    
-    await Department.findByIdAndDelete(id);
-    
-    return NextResponse.json(
-      { message: 'Department deleted successfully' },
-      { status: 200 }
-    );
+    if (!department) return apiError('Department not found.', 404);
+    department.active = false;
+    await department.save();
+    return NextResponse.json({ message: 'Department archived.' });
   } catch (error) {
-    console.error('Error deleting department:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete department' },
-      { status: 500 }
-    );
+    console.error('Unable to archive department:', error);
+    return apiError('Unable to archive this department.', 500);
   }
 }

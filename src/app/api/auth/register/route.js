@@ -1,83 +1,42 @@
-// File: c:\hackathon\src\app\api\auth\register\route.js
-import { NextResponse } from 'next/server';
 import bcrypt from 'bcrypt';
+import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/dbConnect';
 import User from '@/model/User';
-
-// Admin registration code - should be stored in environment variables
-const ADMIN_REGISTRATION_CODE = process.env.ADMIN_REGISTRATION_CODE || 'ADMIN123';
+import { apiError, requestIp } from '@/lib/http';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { cleanText, isValidEmail, normalizeEmail, validatePassword } from '@/lib/validation';
 
 export async function POST(request) {
+  const rate = checkRateLimit(`register:${requestIp(request)}`, { limit: 5, windowMs: 15 * 60_000 });
+  if (!rate.allowed) return apiError('Too many registration attempts. Please try again later.', 429);
+
   try {
-    await dbConnect();
-    
     const body = await request.json();
-    const { name, email, password, phone, adminCode } = body;
-    
-    // Validate input
-    if (!name || !email || !password) {
-      return NextResponse.json(
-        { error: 'Name, email, and password are required' },
-        { status: 400 }
-      );
-    }
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User with this email already exists' },
-        { status: 409 }
-      );
-    }
-    
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    
-    // Determine user role based on admin code
-    let role = 'citizen'; // Default role
-    
-    if (adminCode) {
-      // Validate admin code
-      if (adminCode === ADMIN_REGISTRATION_CODE) {
-        role = 'admin';
-      } else {
-        return NextResponse.json(
-          { error: 'Invalid admin code' },
-          { status: 400 }
-        );
-      }
-    }
-    
-    // Create new user
-    const user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      phone: phone || '',
-      role // Set the role based on admin code
-    });
-    
-    await user.save();
-    
-    // Return success (don't include password)
-    const userResponse = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    };
-    
-    return NextResponse.json(
-      { message: 'User registered successfully', user: userResponse },
-      { status: 201 }
-    );
+    const name = cleanText(body.name, 80);
+    const email = normalizeEmail(body.email);
+    const phone = cleanText(body.phone, 20);
+    const passwordError = validatePassword(body.password);
+
+    const errors = {};
+    if (name.length < 2) errors.name = 'Enter your full name.';
+    if (!isValidEmail(email)) errors.email = 'Enter a valid email address.';
+    if (passwordError) errors.password = passwordError;
+    if (Object.keys(errors).length) return apiError('Please correct the highlighted fields.', 400, errors);
+
+    await dbConnect();
+    const existingUser = await User.exists({ email });
+    if (existingUser) return apiError('An account with this email already exists.', 409);
+
+    const password = await bcrypt.hash(body.password, 12);
+    const user = await User.create({ name, email, phone, password, role: 'citizen' });
+
+    return NextResponse.json({
+      message: 'Account created successfully.',
+      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+    }, { status: 201 });
   } catch (error) {
-    console.error('Registration error:', error);
-    return NextResponse.json(
-      { error: 'Failed to register user' },
-      { status: 500 }
-    );
+    if (error?.code === 11000) return apiError('An account with this email already exists.', 409);
+    console.error('Registration failed:', error);
+    return apiError('Unable to create your account right now.', 500);
   }
 }

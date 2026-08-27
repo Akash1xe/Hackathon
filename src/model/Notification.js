@@ -34,14 +34,11 @@ const NotificationSchema = new mongoose.Schema({
   readAt: {
     type: Date
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+}, { timestamps: true });
 
 // Index for quick lookup of unread notifications
 NotificationSchema.index({ recipient: 1, read: 1 });
+NotificationSchema.index({ recipient: 1, createdAt: -1 });
 
 const Notification = mongoose.models.Notification || mongoose.model('Notification', NotificationSchema);
 

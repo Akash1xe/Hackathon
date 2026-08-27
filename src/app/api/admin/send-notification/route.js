@@ -1,145 +1,37 @@
-// File: c:\hackathon\src\app\api\admin\send-notification\route.js
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError } from '@/lib/http';
+import { cleanText, isValidObjectId, normalizeEmail } from '@/lib/validation';
 import User from '@/model/User';
 import Notification from '@/model/Notification';
-import mongoose from 'mongoose';
 
 export async function POST(request) {
   try {
-    await dbConnect();
-    
-    // Check if user is admin
     const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 403 }
-      );
+    if (session?.user?.role !== 'admin') return apiError('Administrator access required.', 403);
+    const body = await request.json();
+    const title = cleanText(body.title, 120);
+    const message = cleanText(body.message, 1200);
+    if (!title || !message) return apiError('Title and message are required.', 400);
+    if (!['user', 'role', 'all'].includes(body.recipientType)) return apiError('Choose a valid recipient group.', 400);
+    await dbConnect();
+
+    let query = { active: { $ne: false } };
+    if (body.recipientType === 'role') query.role = body.role === 'admin' ? 'admin' : 'citizen';
+    if (body.recipientType === 'user') {
+      if (isValidObjectId(body.recipientId)) query._id = body.recipientId;
+      else if (body.recipientEmail) query.email = normalizeEmail(body.recipientEmail);
+      else return apiError('Choose a recipient.', 400);
     }
-    
-    const data = await request.json();
-    const { 
-      recipientType, 
-      recipientId, 
-      recipientEmail,
-      title, 
-      message, 
-      type = 'admin_alert',
-      relatedReportId
-    } = data;
-    
-    // Validate required fields
-    if (!title || !message) {
-      return NextResponse.json(
-        { error: 'Title and message are required' },
-        { status: 400 }
-      );
-    }
-    
-    // Validate recipient info
-    if (!recipientType) {
-      return NextResponse.json(
-        { error: 'Recipient type is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Find recipients based on type
-    let recipients = [];
-    
-    if (recipientType === 'user') {
-      // Single user recipient
-      if (!recipientId && !recipientEmail) {
-        return NextResponse.json(
-          { error: 'Either recipient ID or email is required for user notifications' },
-          { status: 400 }
-        );
-      }
-      
-      let user;
-      if (recipientId && mongoose.Types.ObjectId.isValid(recipientId)) {
-        user = await User.findById(recipientId);
-      } else if (recipientEmail) {
-        user = await User.findOne({ email: recipientEmail });
-      }
-      
-      if (!user) {
-        return NextResponse.json(
-          { error: 'Recipient user not found' },
-          { status: 404 }
-        );
-      }
-      
-      recipients.push(user);
-    } 
-    else if (recipientType === 'role') {
-      // All users with a specific role (citizen or admin)
-      const role = data.role || 'citizen';
-      recipients = await User.find({ role });
-      
-      if (recipients.length === 0) {
-        return NextResponse.json(
-          { error: `No users found with role: ${role}` },
-          { status: 404 }
-        );
-      }
-    }
-    else if (recipientType === 'all') {
-      // All users
-      recipients = await User.find({});
-      
-      if (recipients.length === 0) {
-        return NextResponse.json(
-          { error: 'No users found in the system' },
-          { status: 404 }
-        );
-      }
-    }
-    else {
-      return NextResponse.json(
-        { error: 'Invalid recipient type' },
-        { status: 400 }
-      );
-    }
-    
-    // Create notifications for each recipient
-    const notifications = [];
-    
-    for (const recipient of recipients) {
-      const notification = new Notification({
-        recipient: recipient._id,
-        type,
-        title,
-        message,
-        relatedReport: relatedReportId && mongoose.Types.ObjectId.isValid(relatedReportId) 
-          ? relatedReportId 
-          : undefined,
-        read: false
-      });
-      
-      await notification.save();
-      
-      // Add notification to user's notifications array
-      await User.findByIdAndUpdate(
-        recipient._id,
-        { $push: { notifications: notification._id } }
-      );
-      
-      notifications.push(notification);
-    }
-    
-    return NextResponse.json({
-      message: `Sent ${notifications.length} notifications successfully`,
-      count: notifications.length
-    }, { status: 201 });
+    const recipients = await User.find(query).select('_id').limit(5000);
+    if (!recipients.length) return apiError('No matching recipients were found.', 404);
+    const relatedReport = isValidObjectId(body.relatedReportId) ? body.relatedReportId : undefined;
+    await Notification.insertMany(recipients.map((recipient) => ({ recipient: recipient._id, type: 'admin_alert', title, message, relatedReport, read: false })));
+    return NextResponse.json({ message: `Notification sent to ${recipients.length} people.`, count: recipients.length }, { status: 201 });
   } catch (error) {
-    console.error('Error sending notifications:', error);
-    return NextResponse.json(
-      { error: 'Failed to send notifications' },
-      { status: 500 }
-    );
+    console.error('Unable to send notifications:', error);
+    return apiError('Unable to send this notification.', 500);
   }
 }

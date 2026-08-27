@@ -1,71 +1,45 @@
-// File: c:\hackathon\src\app\api\departments\route.js
-import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
+import { apiError } from '@/lib/http';
+import { CATEGORY_VALUES } from '@/lib/constants';
+import { cleanText, isValidEmail, normalizeEmail } from '@/lib/validation';
 import Department from '@/model/Department';
 
-// Get all departments
-export async function GET(request) {
+export async function GET() {
   try {
     await dbConnect();
-    
-    const departments = await Department.find({ active: true })
-      .select('name description categories contactEmail');
-    
+    const departments = await Department.find({ active: true }).select('name description categories contactEmail contactPhone').sort({ name: 1 });
     return NextResponse.json(departments);
   } catch (error) {
-    console.error('Error fetching departments:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch departments' },
-      { status: 500 }
-    );
+    console.error('Unable to load departments:', error);
+    return apiError('Unable to load departments.', 500);
   }
 }
 
-// Create a new department (admin only)
 export async function POST(request) {
   try {
-    await dbConnect();
-    
-    // Check if user is admin
     const session = await getServerSession(authOptions);
-    if (!session || !session.user || session.user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'You must be an admin to create departments' },
-        { status: 403 }
-      );
-    }
-    
-    const data = await request.json();
-    
-    // Validate required fields
-    if (!data.name) {
-      return NextResponse.json(
-        { error: 'Department name is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Check if department already exists
-    const existingDepartment = await Department.findOne({ name: data.name });
-    if (existingDepartment) {
-      return NextResponse.json(
-        { error: 'A department with this name already exists' },
-        { status: 409 }
-      );
-    }
-    
-    // Create new department
-    const department = new Department(data);
-    await department.save();
-    
+    if (session?.user?.role !== 'admin') return apiError('Administrator access required.', 403);
+    const body = await request.json();
+    const name = cleanText(body.name, 100);
+    const contactEmail = normalizeEmail(body.contactEmail);
+    if (name.length < 2) return apiError('Department name is required.', 400);
+    if (contactEmail && !isValidEmail(contactEmail)) return apiError('Enter a valid contact email.', 400);
+    await dbConnect();
+    const department = await Department.create({
+      name,
+      description: cleanText(body.description, 600),
+      categories: Array.isArray(body.categories) ? body.categories.filter((item) => CATEGORY_VALUES.includes(item)) : [],
+      contactEmail,
+      contactPhone: cleanText(body.contactPhone, 30),
+      active: true
+    });
     return NextResponse.json(department, { status: 201 });
   } catch (error) {
-    console.error('Error creating department:', error);
-    return NextResponse.json(
-      { error: 'Failed to create department' },
-      { status: 500 }
-    );
+    if (error?.code === 11000) return apiError('A department with this name already exists.', 409);
+    console.error('Unable to create department:', error);
+    return apiError('Unable to create this department.', 500);
   }
 }
