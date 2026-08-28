@@ -1,6 +1,7 @@
 import './globals.css';
 import Navbar from '@/components/Navbar';
 import { AuthProvider } from './providers';
+import { Analytics } from '@vercel/analytics/next';
 
 export const metadata = {
   title: { default: 'Samvid — City Action Network', template: '%s · Samvid' },
@@ -8,5 +9,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body><AuthProvider><Navbar />{children}</AuthProvider></body></html>;
+  return <html lang="en"><body><AuthProvider><Navbar />{children}</AuthProvider><Analytics /></body></html>;
 }
