@@ -10,8 +10,8 @@ export async function GET() {
     const base = { deletedAt: { $exists: false } };
     const [totalReports, resolvedReports, activeReports, departments] = await Promise.all([
       Report.countDocuments(base),
-      Report.countDocuments({ ...base, status: 'resolved' }),
-      Report.countDocuments({ ...base, status: { $in: ['submitted', 'in_review', 'assigned', 'in_progress'] } }),
+      Report.countDocuments({ ...base, status: { $in: ['resolved', 'citizen_confirmed'] } }),
+      Report.countDocuments({ ...base, status: { $nin: ['resolved', 'citizen_confirmed', 'rejected'] } }),
       Department.countDocuments({ active: true })
     ]);
     return NextResponse.json({ totalReports, resolvedReports, activeReports, departments });

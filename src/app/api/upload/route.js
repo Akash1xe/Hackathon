@@ -9,20 +9,20 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 const allowedTypes = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp']]);
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return apiError('Please sign in to upload evidence.', 401);
-    const rate = checkRateLimit(`upload:${session.user.id}:${requestIp(request)}`, { limit: 20, windowMs: 60 * 60_000 });
+    const rate = await checkRateLimit(`upload:${session.user.id}:${requestIp(request)}`, { limit: 20, windowMs: 60 * 60_000 });
     if (!rate.allowed) return apiError('Upload limit reached. Please try again later.', 429);
 
     const formData = await request.formData();
     const file = formData.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return apiError('Choose an image to upload.', 400);
     if (!allowedTypes.has(file.type)) return apiError('Only JPEG, PNG, and WebP images are supported.', 400);
-    if (file.size > MAX_BYTES) return apiError('Images must be 5 MB or smaller.', 413);
+    if (file.size > MAX_BYTES) return apiError('Images must be 4 MB or smaller.', 413);
 
     const buffer = Buffer.from(await file.arrayBuffer());
     if (!matchesFileSignature(buffer, file.type)) return apiError('The uploaded file does not match its image type.', 400);

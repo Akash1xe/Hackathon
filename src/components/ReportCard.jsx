@@ -16,6 +16,7 @@ export default function ReportCard({ report }) {
       <h3 className="text-lg font-extrabold tracking-[-.02em] text-[#12322f] group-hover:text-[#0b6b58]">{report.title}</h3>
       <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#627570]">{report.description}</p>
       <div className="mt-auto pt-5">
+        {(report.impactCount > 0 || report.risk?.score) && <div className="mb-3 flex flex-wrap gap-2 text-xs font-bold"><span className="rounded-full bg-[#e8f3ef] px-2.5 py-1 text-[#0b6b58]">{report.impactCount || 0} citizens affected</span>{report.risk?.score && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-800">Risk {report.risk.score}/100</span>}</div>}
         <p className="flex items-center gap-1.5 truncate text-sm text-[#627570]"><MapPinIcon className="h-4 w-4 shrink-0" />{report.location?.address}</p>
         <div className="mt-4 flex items-center justify-between border-t border-[#edf0ee] pt-4 text-xs font-semibold text-[#7a8a87]">
           <span>{report.submittedBy?.name || 'Citizen report'}</span>

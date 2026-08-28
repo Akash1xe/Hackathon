@@ -13,8 +13,19 @@ export const REPORT_STATUSES = [
   { value: 'assigned', label: 'Assigned' },
   { value: 'in_progress', label: 'In progress' },
   { value: 'resolved', label: 'Resolved' },
+  { value: 'citizen_confirmed', label: 'Citizen confirmed' },
+  { value: 'disputed', label: 'Disputed' },
+  { value: 'reopened', label: 'Reopened' },
   { value: 'rejected', label: 'Rejected' }
 ];
+
+export const COMMUNITY_VERDICTS = [
+  { value: 'still_exists', label: 'Still exists' },
+  { value: 'no_longer_exists', label: 'No longer exists' },
+  { value: 'incorrect', label: 'Incorrect report' }
+];
+
+export const SLA_HOURS = { urgent: 6, high: 24, medium: 72, low: 168 };
 
 export const REPORT_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 

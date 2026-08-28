@@ -5,13 +5,10 @@ if (!email) {
   console.error('Usage: npm run admin:promote -- citizen@example.com');
   process.exit(1);
 }
-if (!process.env.MONGODB_URI) {
-  console.error('MONGODB_URI is missing from .env.local.');
-  process.exit(1);
-}
+const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/samvid';
 
 try {
-  await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8_000 });
+  await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 8_000 });
   const result = await mongoose.connection.collection('users').findOneAndUpdate(
     { email },
     { $set: { role: 'admin', active: true, updatedAt: new Date() } },

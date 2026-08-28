@@ -3,7 +3,13 @@ import { apiError, requestIp } from '@/lib/http';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function GET(request) {
-  const rate = checkRateLimit(`geocode:${requestIp(request)}`, { limit: 30, windowMs: 60 * 60_000 });
+  let rate;
+  try {
+    rate = await checkRateLimit(`geocode:${requestIp(request)}`, { limit: 30, windowMs: 60 * 60_000 });
+  } catch (error) {
+    console.error('Unable to check geocoding rate limit:', error);
+    return apiError('Location lookup is temporarily unavailable.', 503);
+  }
   if (!rate.allowed) return apiError('Location lookup limit reached.', 429);
 
   const { searchParams } = new URL(request.url);

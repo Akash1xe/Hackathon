@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { BellAlertIcon, BuildingOffice2Icon, ChartBarSquareIcon, ClipboardDocumentListIcon, MapIcon, XMarkIcon, Bars3Icon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
+import { BellAlertIcon, BuildingOffice2Icon, ChartBarSquareIcon, ClipboardDocumentListIcon, MapIcon, WrenchScrewdriverIcon, XMarkIcon, Bars3Icon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
 import BrandMark from '@/components/BrandMark';
 
 const items = [
@@ -12,6 +12,7 @@ const items = [
   { href: '/admin/reports', label: 'Case management', icon: ClipboardDocumentListIcon },
   { href: '/admin/map-dashboard', label: 'City map', icon: MapIcon },
   { href: '/admin/departments', label: 'Departments', icon: BuildingOffice2Icon },
+  { href: '/admin/assets', label: 'Public assets', icon: WrenchScrewdriverIcon },
   { href: '/admin/send-notification', label: 'Public notices', icon: BellAlertIcon }
 ];
 

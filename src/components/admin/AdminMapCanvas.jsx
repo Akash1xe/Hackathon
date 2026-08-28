@@ -8,7 +8,7 @@ import 'leaflet/dist/leaflet.css';
 import StatusBadge from '@/components/StatusBadge';
 import { categoryLabel } from '@/lib/constants';
 
-const colors = { submitted: '#0284c7', in_review: '#d97706', assigned: '#7c3aed', in_progress: '#2563eb', resolved: '#059669', rejected: '#e11d48' };
+const colors = { submitted: '#0284c7', in_review: '#d97706', assigned: '#7c3aed', in_progress: '#2563eb', resolved: '#059669', citizen_confirmed: '#047857', disputed: '#e11d48', reopened: '#ea580c', rejected: '#64748b' };
 
 export default function AdminMapCanvas({ reports }) {
   const positions = reports.filter((report) => report.location?.coordinates?.length === 2);

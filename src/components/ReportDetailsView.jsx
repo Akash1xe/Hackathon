@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { categoryLabel, statusLabel } from '@/lib/constants';
 import CategoryIcon from './CategoryIcon';
 import StatusBadge from './StatusBadge';
+import CivicProofPanel from './CivicProofPanel';
 
 const ReportMap = dynamic(() => import('./ReportMap'), { ssr: false, loading: () => <div className="h-72 animate-pulse rounded-2xl bg-[#e7eeeb]" /> });
 
@@ -20,9 +21,12 @@ export default function ReportDetailsView({ id }) {
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    fetch(`/api/reports/${id}`).then(async (response) => { const result = await response.json(); if (!response.ok) throw new Error(result.error); setReport(result); }).catch((requestError) => setError(requestError.message || 'Unable to load report.'));
-  }, [id]);
+  async function loadReport() {
+    try { const response = await fetch(`/api/reports/${id}`); const result = await response.json(); if (!response.ok) throw new Error(result.error); setReport(result); }
+    catch (requestError) { setError(requestError.message || 'Unable to load report.'); }
+  }
+
+  useEffect(() => { loadReport(); }, [id]);
 
   const timeline = useMemo(() => [...(report?.statusHistory || [])].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)), [report]);
   if (error) return <main className="site-shell py-16"><div className="surface p-10 text-center"><h1 className="text-2xl font-black">Report unavailable</h1><p className="mt-2 text-rose-700">{error}</p><Link href="/#issues" className="button-secondary mt-6">Browse reports</Link></div></main>;
@@ -48,6 +52,7 @@ export default function ReportDetailsView({ id }) {
             <p className="mt-7 whitespace-pre-wrap text-base leading-8 text-[#516b65]">{report.description}</p>
             <div className="mt-7 grid gap-3 border-t border-[#e5eae8] pt-6 text-sm text-[#627570] sm:grid-cols-2"><p className="flex items-center gap-2"><MapPinIcon className="h-5 w-5 text-[#0b6b58]" />{report.location?.address}</p><p className="flex items-center gap-2"><CalendarDaysIcon className="h-5 w-5 text-[#0b6b58]" />Reported {format(new Date(report.createdAt), 'dd MMM yyyy, h:mm a')}</p></div>
             {report.images?.length > 0 && <div className="mt-7 grid gap-3 sm:grid-cols-2">{report.images.map((image, index) => <a key={image} href={image} target="_blank" rel="noreferrer" className="focus-ring overflow-hidden rounded-2xl border border-[#dce3df]"><img src={image} alt={`Issue evidence ${index + 1}`} className="aspect-[4/3] h-full w-full object-cover transition duration-300 hover:scale-[1.02]" /></a>)}</div>}
+            {report.resolutionEvidence?.images?.length > 0 && <div className="mt-8 border-t border-[#e5eae8] pt-7"><div className="flex items-center justify-between"><div><p className="eyebrow">After-repair proof</p><h2 className="mt-2 text-2xl font-black">Resolution evidence</h2></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{report.resolutionEvidence.aiImprovementScore || 0}% improvement</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2">{report.resolutionEvidence.images.map((image,index) => <a key={image} href={image} target="_blank" rel="noreferrer" className="overflow-hidden rounded-2xl border border-[#dce3df]"><img src={image} alt={`After repair evidence ${index + 1}`} className="aspect-[4/3] h-full w-full object-cover" /></a>)}</div></div>}
           </article>
           <section className="surface p-5 sm:p-7"><div className="mb-5"><p className="eyebrow">Verified location</p><h2 className="mt-2 text-2xl font-black tracking-[-.03em]">Where this issue was reported</h2></div><ReportMap location={report.location} /></section>
         </div>
@@ -56,6 +61,8 @@ export default function ReportDetailsView({ id }) {
           {(editable || session?.user?.role === 'admin') && <div className="surface flex gap-2 p-3">{editable && <><Link href={`/reports/${id}/edit`} className="button-secondary flex-1"><PencilSquareIcon className="h-4 w-4" />Edit</Link><button onClick={removeReport} disabled={deleting} className="button-secondary text-rose-700"><TrashIcon className="h-4 w-4" /><span className="sr-only">Delete report</span></button></>}{session?.user?.role === 'admin' && <Link href={`/admin/reports?open=${id}`} className="button-primary flex-1">Manage case</Link>}</div>}
           <section className="surface p-6"><p className="eyebrow">Case timeline</p><h2 className="mt-2 text-2xl font-black tracking-[-.03em]">Progress history</h2><div className="mt-6">{timeline.map((entry, index) => <div key={`${entry.status}-${entry.timestamp}-${index}`} className="grid grid-cols-[24px_1fr] gap-3"><div className="flex flex-col items-center"><span className="mt-1.5 h-3 w-3 rounded-full bg-[#0b6b58] ring-4 ring-[#e8f3ef]" />{index < timeline.length - 1 && <span className="min-h-16 w-px flex-1 bg-[#cbd8d3]" />}</div><div className="pb-6"><p className="font-extrabold">{statusLabel(entry.status)}</p><p className="mt-1 text-sm leading-5 text-[#627570]">{entry.comment || 'Case status updated.'}</p><p className="mt-2 text-xs font-semibold text-[#879490]">{format(new Date(entry.timestamp), 'dd MMM yyyy, h:mm a')}</p></div></div>)}</div></section>
           <section className="surface p-6"><p className="eyebrow">Ownership</p><div className="mt-4 space-y-4"><div><p className="text-xs font-bold uppercase tracking-wider text-[#81908d]">Reported by</p><p className="mt-1 font-extrabold">{report.submittedBy?.name || 'Citizen'}</p></div><div className="border-t border-[#e5eae8] pt-4"><p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#81908d]"><BuildingOffice2Icon className="h-4 w-4" />Responsible department</p><p className="mt-1 font-extrabold">{report.assignedTo?.department?.name || 'Awaiting assignment'}</p></div></div></section>
+          {report.asset && <section className="surface p-6"><p className="eyebrow">Registered public asset</p><h2 className="mt-2 text-xl font-black">{report.asset.name}</h2><p className="mt-2 text-sm font-bold text-[#0b6b58]">{report.asset.assetCode}</p><p className="mt-2 text-sm text-[#627570]">{report.asset.location?.address}</p></section>}
+          <CivicProofPanel report={report} onReload={loadReport} />
         </aside>
       </div>
     </main>

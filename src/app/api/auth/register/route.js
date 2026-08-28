@@ -7,10 +7,9 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { cleanText, isValidEmail, normalizeEmail, validatePassword } from '@/lib/validation';
 
 export async function POST(request) {
-  const rate = checkRateLimit(`register:${requestIp(request)}`, { limit: 5, windowMs: 15 * 60_000 });
-  if (!rate.allowed) return apiError('Too many registration attempts. Please try again later.', 429);
-
   try {
+    const rate = await checkRateLimit(`register:${requestIp(request)}`, { limit: 5, windowMs: 15 * 60_000 });
+    if (!rate.allowed) return apiError('Too many registration attempts. Please try again later.', 429);
     const body = await request.json();
     const name = cleanText(body.name, 80);
     const email = normalizeEmail(body.email);

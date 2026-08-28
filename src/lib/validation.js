@@ -44,7 +44,7 @@ export function validateLocation(location) {
   return { type: 'Point', coordinates: [longitude, latitude], address };
 }
 
-function isAllowedImageUrl(value) {
+export function isAllowedImageUrl(value) {
   if (typeof value !== 'string' || value.length > 500) return false;
   if (value.startsWith('/uploads/')) return /^\/uploads\/[a-f\d-]+\.(jpg|png|webp)$/i.test(value);
   try {
@@ -85,6 +85,33 @@ export function parseCitizenReport(input, { partial = false } = {}) {
       : [];
   }
 
+  if (input.assetId !== undefined) {
+    report.asset = input.assetId && isValidObjectId(input.assetId) ? input.assetId : undefined;
+    if (input.assetId && !report.asset) errors.assetId = 'Choose a valid public asset.';
+  }
+
+  if (input.voice !== undefined) {
+    report.voice = {
+      language: cleanText(input.voice?.language, 20),
+      transcript: cleanText(input.voice?.transcript, 2000)
+    };
+  }
+
+  if (input.evidenceAnalysis !== undefined) {
+    const analysis = input.evidenceAnalysis || {};
+    report.evidenceAnalysis = {
+      status: ['ai_verified', 'needs_review', 'suspicious'].includes(analysis.status) ? analysis.status : 'needs_review',
+      score: Math.max(0, Math.min(100, Number(analysis.score) || 0)),
+      suggestedCategory: CATEGORY_VALUES.includes(analysis.suggestedCategory) ? analysis.suggestedCategory : report.category,
+      categoryMatch: Boolean(analysis.categoryMatch),
+      severity: Math.max(0, Math.min(100, Number(analysis.severity) || 0)),
+      imageQuality: ['good', 'usable', 'poor'].includes(analysis.imageQuality) ? analysis.imageQuality : 'unknown',
+      labels: Array.isArray(analysis.labels) ? analysis.labels.slice(0, 6).map((item) => ({ label: cleanText(item.label, 80), score: Math.max(0, Math.min(1, Number(item.score) || 0)) })) : [],
+      model: cleanText(analysis.model, 120),
+      analyzedAt: new Date()
+    };
+  }
+
   return { value: report, errors, valid: Object.keys(errors).length === 0 };
 }
 
@@ -106,6 +133,26 @@ export function parseAdminReportUpdate(input) {
   }
   if (input.comment !== undefined) update.comment = cleanText(input.comment, 800);
   if (input.resolutionNote !== undefined) update.resolutionNote = cleanText(input.resolutionNote, 1200);
+  if (input.resolutionImages !== undefined) {
+    update.resolutionImages = Array.isArray(input.resolutionImages) ? input.resolutionImages.filter(isAllowedImageUrl).slice(0, 4) : [];
+  }
+  if (input.resolutionImprovementScore !== undefined) update.resolutionImprovementScore = Math.max(0, Math.min(100, Number(input.resolutionImprovementScore) || 0));
+  if (input.resolutionBeforeProblemScore !== undefined) update.resolutionBeforeProblemScore = Math.max(0, Math.min(100, Number(input.resolutionBeforeProblemScore) || 0));
+  if (input.resolutionAfterRepairScore !== undefined) update.resolutionAfterRepairScore = Math.max(0, Math.min(100, Number(input.resolutionAfterRepairScore) || 0));
+  if (input.resolutionAssessment !== undefined) {
+    update.resolutionAssessment = cleanText(input.resolutionAssessment, 30);
+    if (!['likely_resolved', 'needs_review', 'unlikely_resolved'].includes(update.resolutionAssessment)) errors.resolutionAssessment = 'Choose a valid resolution assessment.';
+  }
+  if (input.resolutionModel !== undefined) update.resolutionModel = cleanText(input.resolutionModel, 140);
+  if (input.appealId !== undefined) {
+    update.appealId = cleanText(input.appealId, 24);
+    if (update.appealId && !isValidObjectId(update.appealId)) errors.appealId = 'Invalid appeal.';
+  }
+  if (input.appealStatus !== undefined) {
+    update.appealStatus = cleanText(input.appealStatus, 20);
+    if (!['approved', 'rejected'].includes(update.appealStatus)) errors.appealStatus = 'Choose a valid appeal decision.';
+  }
+  if (input.appealResponse !== undefined) update.appealResponse = cleanText(input.appealResponse, 800);
 
   if (Object.keys(update).length === 0) errors.form = 'No supported changes were provided.';
   return { value: update, errors, valid: Object.keys(errors).length === 0 };

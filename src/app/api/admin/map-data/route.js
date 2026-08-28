@@ -20,8 +20,8 @@ export async function GET(request) {
     if (CATEGORY_VALUES.includes(category)) query.category = category;
     if (days) query.createdAt = { $gte: new Date(Date.now() - days * 86_400_000) };
     await dbConnect();
-    const reports = await Report.find(query).select('referenceId title category status priority location createdAt').sort({ createdAt: -1 }).limit(2000);
-    return NextResponse.json({ mapData: reports.map((report) => ({ id: report._id, referenceId: report.referenceId, title: report.title, category: report.category, status: report.status, priority: report.priority, location: report.location, createdAt: report.createdAt })) });
+    const reports = await Report.find(query).select('referenceId title category status priority location risk sla trust createdAt').sort({ createdAt: -1 }).limit(2000);
+    return NextResponse.json({ mapData: reports.map((report) => ({ id: report._id, referenceId: report.referenceId, title: report.title, category: report.category, status: report.status, priority: report.priority, location: report.location, risk: report.risk, sla: report.sla, trust: report.trust, createdAt: report.createdAt })) });
   } catch (error) {
     console.error('Unable to load map reports:', error);
     return apiError('Unable to load the city map.', 500);

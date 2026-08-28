@@ -1,19 +1,27 @@
-const globalStore = globalThis.__samvidRateLimit || new Map();
-globalThis.__samvidRateLimit = globalStore;
+import { createHash } from 'node:crypto';
+import dbConnect from './dbConnect.js';
+import RateLimitBucket from '../model/RateLimitBucket.js';
 
-export function checkRateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
+export async function checkRateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
   const now = Date.now();
-  const record = globalStore.get(key);
+  const bucket = Math.floor(now / windowMs);
+  const resetAt = (bucket + 1) * windowMs;
+  const digest = createHash('sha256').update(String(key)).digest('hex').slice(0, 40);
+  const bucketId = `${digest}:${bucket}`;
+  await dbConnect();
 
-  if (!record || record.resetAt <= now) {
-    globalStore.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, remaining: limit - 1, resetAt: now + windowMs };
+  let record;
+  try {
+    record = await RateLimitBucket.findByIdAndUpdate(
+      bucketId,
+      { $inc: { count: 1 }, $setOnInsert: { expiresAt: new Date(resetAt) } },
+      { new: true, upsert: true, setDefaultsOnInsert: true, lean: true }
+    );
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    record = await RateLimitBucket.findByIdAndUpdate(bucketId, { $inc: { count: 1 } }, { new: true, lean: true });
   }
 
-  if (record.count >= limit) {
-    return { allowed: false, remaining: 0, resetAt: record.resetAt };
-  }
-
-  record.count += 1;
-  return { allowed: true, remaining: limit - record.count, resetAt: record.resetAt };
+  const count = Number(record?.count || 1);
+  return { allowed: count <= limit, remaining: Math.max(0, limit - count), resetAt };
 }
